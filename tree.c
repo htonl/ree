@@ -1,15 +1,5 @@
 #include "tree.h"
 
-int tree_init(node_t **tree) {
-    tree = malloc(sizeof(struct node));
-    if (NULL == tree) {
-        printf("%s out of memory allocating tree\n", __FUNCTION__);
-        return -1;
-    }
-    memset(tree, 0, sizeof(struct node));
-    return 0;
-}
-
 int tree_insert(node_t **tree, instruction_t *insn) {
     node_t *tmp;
     node_t *new_node = malloc(sizeof(struct node));
@@ -22,8 +12,8 @@ int tree_insert(node_t **tree, instruction_t *insn) {
 
     tmp = *tree;
     // tree is empty, inserting first node
-    if (NULL == tmp) {
-        tmp = new_node;
+    if (tmp == NULL) {
+        *tree = new_node;
         return 0;
     }
     // find where to insert the node

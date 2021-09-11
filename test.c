@@ -27,7 +27,7 @@ int main(void) {
     printf(" ----- Test 2: tree of insn -----\n");
     instruction_t *insns[5];
     node_t *tree;
-    tree_init(&tree);
+    tree = NULL;
     for (int j = 0; j < 5; j++) {
         insns[j] = insn_new();
         insns[j]->addr = j;
