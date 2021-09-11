@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "instruction.h"
 #include "tree.h"
+#include "hash.h"
 
 int main(void) {
     // Print type sizes
@@ -24,7 +25,7 @@ int main(void) {
     printf("i.modrm = %lx\n", i->displacement);
     insn_free(i);
     
-    printf(" ----- Test 2: tree of insn -----\n");
+    printf(" ----- Test 3: tree of insn -----\n");
     instruction_t *insns[5];
     node_t *tree;
     tree = NULL;
@@ -36,6 +37,22 @@ int main(void) {
         tree_insert(&tree, insns[j]);
     }
     tree_traverse(tree);
+    tree_free(tree);
+    
+    printf(" ----- Test 4: hash of insn -----\n");
+    init_hashtable();
+    hash_entry_t *tmp;
+    enum op_encoding oe = RM;
+    tmp = malloc(sizeof(hash_entry_t));
+    if (!tmp)
+        return -1;
+    tmp->opcode[0] = 0x05;
+    tmp->encoding = oe;
+    memcpy(tmp->opcode_name, "eax", sizeof(tmp->opcode_name));
+    printf("inserting opcode = 0x05, name = eax, encoding = RM\n");
+    hash_insert(tmp);
+    tmp = hash_lookup(0x05);
+    printf("looked up opcode_name = %s\n", tmp->opcode_name);
 
     return 0;
 }
