@@ -1,10 +1,6 @@
 #ifndef _INSTRUCTION_H_
 #define _INSTRUCTION_H_
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #define INSTRUCTION_SIZE sizeof(instruction_t)
 
 #define REG_EAX 0x000

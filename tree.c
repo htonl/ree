@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include "tree.h"
 
 /* @brief Insert node into binary tree
@@ -48,7 +51,8 @@ done:
     return 0;
 }
 
-/* @brief simple traversal from smallest to largest node
+/* 
+ * @brief simple traversal from smallest to largest node
  * @param tree to traverse
  */
 void tree_traverse(node_t *tree) {
@@ -61,6 +65,10 @@ void tree_traverse(node_t *tree) {
     }
 }
 
+/* 
+ * @brief Destroy and free the whole tree 
+ * @param tree to free
+ */
 void tree_free(node_t *tree) {
     if (tree != NULL) {
         tree_free(tree->left);

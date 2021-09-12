@@ -1,6 +1,6 @@
 #ifndef _HASH_H_
 #define _HASH_H_
-
+#define HASHFILE "instructions.txt"
 #define HASHTABLESIZE 80// big enought for this project
 enum op_encoding {
     MR,
@@ -18,9 +18,7 @@ typedef struct hash_entry {
     struct hash_entry *next;
 } hash_entry_t;
 
-int hash_insert(hash_entry_t *entry);
-void init_hashtable();
-hash_entry_t *hash_lookup(unsigned char op);
-void create_hashtable(char *filename);
+hash_entry_t *hash_lookup(unsigned char *op);
+int build_hashtable(void);
 
 #endif
