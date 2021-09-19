@@ -112,28 +112,24 @@ unsigned int get_num_entries(hash_entry_t *tmp) {
     return count;
 }
 
-// Returns a pointer to the first hash match that also
-// has the same opcode as op
+// Returns a pointer to the first hash match with same opcode
 //
 // Caller must parse the returned list for collisions
 hash_entry_t *hash_lookup(unsigned char *op) {
     unsigned long idx;
     unsigned int hashable_op;
+    hash_entry_t *tmp;
     hashable_op = get_hashable_op(op);
     idx = hash(hashable_op);
-    //if (!op_cmp(hashtable[idx].opcode, op)) {
-    return &hashtable[idx]; 
-    /*
-    // same op collision
-    while(tmp != NULL) {
-        if (!op_cmp(tmp->opcode, op))
-            // collision but found
-            return tmp;
-        tmp = tmp->next;
+    if (!strncmp(hashtable[idx].opcode, op, 3))
+        return &hashtable[idx];
+    else {
+        tmp = &hashtable[idx];
+        while(tmp && strncmp(tmp->opcode, op, 3)) {
+            tmp = tmp->next;
+        }
+        return tmp;
     }
-    // Not found
-    return NULL;
-    */
 }
 
 int build_hashtable(void) {

@@ -30,6 +30,7 @@ typedef struct __attribute__((__packed__)){
                                 / are < 15 & 1 byte op is req */
     unsigned char opcode[3];    /* Max Opcode is 3 bytes */
     unsigned char modrm;
+    unsigned char reg;
     unsigned char sib;
     unsigned long displacement; /* These are long for future 64-bit support */
     unsigned long immediate;
@@ -39,6 +40,55 @@ typedef struct __attribute__((__packed__)){
 
 instruction_t *insn_new(void);
 void insn_free(instruction_t *i);
-int insn_add_mnemonic(instruction_t *i);
+int insn_create_mnemonic(instruction_t *i);
+
+inline void insn_set_reg(instruction_t *i, unsigned char reg) {
+    i->reg = reg;
+}
+
+inline void insn_set_opcode(instruction_t *i, unsigned char *op) {
+    switch(op[0]) {
+        case 0x48:
+            insn_set_reg(op[1]);
+            op[1] = 0;
+            break;
+        case 0x40:
+            insn_set_reg(op[1]);
+            op[1] = 0;
+            break;
+        case 0x58:
+            insn_set_reg(op[1]);
+            op[1] = 0;
+            break;
+        case 0x50:
+            insn_set_reg(op[1]);
+            op[1] = 0;
+            break;
+    memcpy(i->opcode, op, sizeof(i->opcode));
+}
+
+inline void insn_set_prefix(instruction_t *i, unsigned char *pre) {
+    mempcy(i->prefix, pre, sizeof(i->prefix));
+}
+
+inline void insn_set_modrm(instruction_t *i, unsigned char modrm) {
+    i->modrm = modrm;
+}
+
+inline int insn_set_displacement(instruction_t *i, unsigned long dis) {
+    i->displacement = dis;
+}
+
+inline int insn_set_immediate(instruction_t *i, unsigned long imm) {
+    i->immediate = imm;
+}
+
+inline int insn_set_sib(instruction_t *i, unsigned long sib) {
+    i->sib = sib;
+}
+
+inline int insn_set_addr(instruction_t *i, unsigned long addr) {
+    i->addr = addr;
+}
 
 #endif
