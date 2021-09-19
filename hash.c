@@ -5,9 +5,9 @@
 
 hash_entry_t hashtable[HASHTABLESIZE];
 
-static unsigned long hash(unsigned char op) {
+static unsigned long hash(unsigned int op) {
     op = ((op >> 16) ^ op) * 0x45d9f3b;
-    op = ((op >> 16) ^ op) * 0x45d9f3b;
+    op = ((op >> 16) ^ op) * 0x45d9f33;
     op = (op >> 16) ^ op;
     return (op % HASHTABLESIZE);
 }	
@@ -20,6 +20,7 @@ static void copy_entry(hash_entry_t *dest, hash_entry_t *src) {
     memcpy(dest->opcode, src->opcode, 4);
     memcpy(dest->opcode_name, src->opcode_name, 16);
     dest->encoding = src->encoding;
+    dest->prefix = src->prefix;
 }
 
 static unsigned int get_hashable_op(unsigned char *op) {
@@ -60,28 +61,30 @@ static int hash_insert(hash_entry_t *entry) {
 
 static enum op_encoding strtoop_encoding(char *tok) {
     enum op_encoding ret;
-    switch (tok[0]) {
-        case 'D':
-            ret = D;
-            break;
-        case 'O':
-            ret = O;
-            break;
-        case'I':
-            ret = I;
-            break;
-        case 'R':
-            ret = RM;
-            break;
-        case 'M':
-            if (tok[1] == 'I') {
-                ret = MI;
-                break;
-            }
-            else {
-                ret = MR;
-                break;
-            }
+    if (!strncmp(tok,"M",strlen(tok))) {
+        ret = M;
+    } else if(!strncmp(tok,"MR",strlen(tok))) {
+        ret = MR;
+    } else if(!strncmp(tok,"MI",strlen(tok))) {
+        ret = MI;
+    } else if(!strncmp(tok,"R",strlen(tok))) {
+        ret = R;
+    } else if(!strncmp(tok,"RM",strlen(tok))) {
+        ret = RM;
+    } else if(!strncmp(tok,"RMI",strlen(tok))) {
+        ret = RMI;
+    } else if(!strncmp(tok,"I",strlen(tok))) {
+        ret = I;
+    } else if(!strncmp(tok,"O",strlen(tok))) {
+        ret = O;
+    } else if(!strncmp(tok,"OI",strlen(tok))) {
+        ret = OI;
+    } else if(!strncmp(tok,"ZO",strlen(tok))) {
+        ret = ZO;
+    } else if(!strncmp(tok,"D",strlen(tok))) {
+        ret = D;
+    } else {
+        ret = -1;
     }
     return ret;
 }
@@ -96,19 +99,32 @@ static int op_cmp(unsigned char *op1, unsigned char *op2) {
     return 0;
 }
 
+unsigned int get_num_entries(hash_entry_t *tmp) {
+    unsigned int count = 1;
+    if (!tmp)
+        return 0;
+    if (!tmp->next)
+        return 1;
+    while (tmp) {
+        tmp = tmp->next;
+        count++;
+    }
+    return count;
+}
+
+// Returns a pointer to the first hash match that also
+// has the same opcode as op
+//
+// Caller must parse the returned list for collisions
 hash_entry_t *hash_lookup(unsigned char *op) {
     unsigned long idx;
     unsigned int hashable_op;
     hashable_op = get_hashable_op(op);
-    hash_entry_t *tmp;
     idx = hash(hashable_op);
-    if (!op_cmp(hashtable[idx].opcode, op))
-        // Found it
-        return &hashtable[idx]; 
-    tmp = hashtable[idx].next;
-    if (!tmp)
-        // op not in hashtable
-        return NULL;
+    //if (!op_cmp(hashtable[idx].opcode, op)) {
+    return &hashtable[idx]; 
+    /*
+    // same op collision
     while(tmp != NULL) {
         if (!op_cmp(tmp->opcode, op))
             // collision but found
@@ -117,6 +133,7 @@ hash_entry_t *hash_lookup(unsigned char *op) {
     }
     // Not found
     return NULL;
+    */
 }
 
 int build_hashtable(void) {
@@ -140,19 +157,28 @@ int build_hashtable(void) {
     }
     init_hashtable();
     while ((read = getline(&line, &len, fp)) != -1) {
+        he->prefix = -2;
         while ((tok = strsep(&line, ",")) != NULL) {
-            if ('0' == tok[0]) {
+            if ('0' == tok[0] && 'x' == tok[1]) {
                 //this is opcode byte
                 he->opcode[op_counter] = (unsigned char)strtoul(tok, NULL, 16);
                 op_counter++;
-               }
-            else if (tok[0] == 'I' || tok[0] == 'M' ||
-                     tok[0] == 'R' || tok[0] == 'O' ||
-                     tok[0] == 'D') {
+            } else if (tok[0] == 'I' || tok[0] == 'M' ||
+                       tok[0] == 'R' || tok[0] == 'O' ||
+                       tok[0] == 'D' || tok[0] == 'Z') {
                 he->encoding = strtoop_encoding(tok);
-            }
-            else {
+            } else if (!strchr(tok, '\n')){
+                // If no new line, this is the opcode name
                 memcpy(he->opcode_name, tok, sizeof(he->opcode_name));
+            } else if (tok[0] != '\n'){
+                // Only set prefix if there is one
+                if (tok[0] == 'r') {
+                    he->prefix = -1;
+                }
+                else {
+                    tok[1] = '\0';
+                    he->prefix = atoi(tok);
+                }
             }
         }
         hash_insert(he);
@@ -165,8 +191,15 @@ int build_hashtable(void) {
     return 0;
 }
 
+static void print_entry(hash_entry_t *tmp) {
+    printf("Opcode: %x%x%x, Name: %s, Mode: %d, prefix: %d\n",
+            tmp->opcode[0], tmp->opcode[1], tmp->opcode[2], tmp->opcode_name,
+            tmp->encoding, tmp->prefix);
+}
 
-
-
-
-
+void print_all_entries(hash_entry_t *tmp) {
+    while (tmp) {
+        print_entry(tmp);
+        tmp = tmp->next;
+    }
+}

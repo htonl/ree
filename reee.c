@@ -15,6 +15,8 @@ int main(int argc, char **argv) {
     FILE *fp;
     char *filename = NULL;
     int c, ret;
+    hash_entry_t *tmp;
+    unsigned char op[3] = {0};
     // Parse arguments
     while ((c = getopt (argc, argv, "i:")) != -1)
     switch (c)
@@ -42,6 +44,15 @@ int main(int argc, char **argv) {
     }
     printf("Disassembling filename: %s\n", filename);
     ret = build_hashtable();
+    op[0] = 0x81;
+    tmp = hash_lookup(op);
+    print_all_entries(tmp);
+    op[0] = 0xe8;
+    tmp = hash_lookup(op);
+    print_all_entries(tmp);
+    op[0] = 0xb8;
+    tmp = hash_lookup(op);
+    print_all_entries(tmp);
     if (ret) {
         fprintf(stderr, "Error building the hashtable, check instructions.txt\n");
         abort();
