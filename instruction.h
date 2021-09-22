@@ -3,14 +3,6 @@
 
 #define INSTRUCTION_SIZE sizeof(instruction_t)
 
-#define REG_EAX 0x000
-#define REG_ECX 0x001
-#define REG_EDX 0x010
-#define REG_EBX 0x011
-#define REG_ESP 0x100
-#define REG_EBP 0x101
-#define REG_ESI 0x110
-#define REG_EDI 0x111
 
 /* @brief instruction abstraction
  *
@@ -34,8 +26,9 @@ typedef struct __attribute__((__packed__)){
     unsigned char sib;
     unsigned long displacement; /* These are long for future 64-bit support */
     unsigned long immediate;
-    unsigned char *mnemonic;   /* instruction mneumonic  ex. mov eax ebx*/ 
-    unsigned char unused[4];    /* Zero padding to 48 bytes */
+    unsigned char *mnemonic;   /* instruction mneumonic  ex. mov eax ebx*/
+    unsigned char is_control_flow;
+    unsigned char unused[3];    /* Zero padding to 48 bytes */
 } instruction_t;
 
 instruction_t *insn_new(void);
