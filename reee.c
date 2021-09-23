@@ -398,7 +398,7 @@ fill:
                         snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%08x]",
                                 he->opcode_name, decode_register(modrm.r), insn->displacement);
                     }
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s  %s, [%s]",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s]",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m));
                     break;
                 case 1: // 01
@@ -407,7 +407,7 @@ fill:
                             decode_register(modrm.r), insn->displacement);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s  %s, [%s + %08x]",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08x]",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->displacement);
                     break;
@@ -448,7 +448,7 @@ fill:
                                 he->opcode_name, decode_register(modrm.r), insn->displacement,
                                 insn->immediate);
                     }
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s  %s, [%s], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s], %08x",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->immediate);
                     break;
@@ -459,7 +459,7 @@ fill:
                             insn->immediate);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s  %s, [%s + %08x], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08x], %08x",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->displacement, insn->immediate);
                     break;
@@ -514,7 +514,7 @@ fill:
                 fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
                 exit(-1);
             }
-            snprintf(mnemonic, MAXMNEMONICSIZE, "%s, %08x", he->opcode_name,
+            snprintf(mnemonic, MAXMNEMONICSIZE, "%s %08x", he->opcode_name,
                     insn->immediate);
             break; // CASE I
         case D:
@@ -527,10 +527,10 @@ fill:
                 exit(-1);
             }
             if (he->opcode[0] == 0x74 || he->opcode[0] == 0x75) {
-                snprintf(mnemonic, MAXMNEMONICSIZE, "%s, %02x", he->opcode_name,
+                snprintf(mnemonic, MAXMNEMONICSIZE, "%s %02x", he->opcode_name,
                     insn->immediate);
             } else {
-                snprintf(mnemonic, MAXMNEMONICSIZE, "%s, %08x", he->opcode_name,
+                snprintf(mnemonic, MAXMNEMONICSIZE, "%s %08x", he->opcode_name,
                     insn->immediate);
             }
             break; // CASE I
