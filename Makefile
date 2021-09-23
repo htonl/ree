@@ -1,8 +1,8 @@
 all:
 	gcc -g instruction.c tree.c hash.c reee.c -o ree
 
-test:
-	gcc -g instruction.c tree.c hash.c test.c -o test
+debug:
+	gcc -g -DDEBUG instruction.c tree.c hash.c reee.c -o ree
 
 clean:
-	rm test
+	rm ree

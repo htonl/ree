@@ -58,9 +58,8 @@ done:
 void tree_traverse(node_t *tree) {
     if (tree != NULL) {
         tree_traverse(tree->left);
-        printf("%lx, %x, %x\n", tree->insn->addr,
-                               tree->insn->opcode[0] & 0xff,
-                               tree->insn->modrm & 0xff);
+        printf("%08x \t %s \n", tree->insn->addr,
+                                tree->insn->mnemonic);
         tree_traverse(tree->right);
     }
 }

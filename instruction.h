@@ -1,6 +1,7 @@
 #ifndef _INSTRUCTION_H_
 #define _INSTRUCTION_H_
 
+#include <string.h>
 #define INSTRUCTION_SIZE sizeof(instruction_t)
 
 
@@ -17,14 +18,14 @@
  * 	5) once EOF of input file, traverse the tree of insn
  */
 typedef struct { 
-    unsigned long addr;         /* address of the instruction */
+    unsigned int addr;         /* address of the instruction */
     unsigned char prefix[14];   /* 14 because valid instructions
                                 / are < 15 & 1 byte op is req */
     unsigned char opcode[3];    /* Max Opcode is 3 bytes */
     unsigned char insn_bytes[15];
     unsigned char modrm;
-    unsigned char reg;
     unsigned char sib;
+    unsigned char reg; /* For the O and OI encoded insns */
     int displacement; /* These are long for future 64-bit support */
     int immediate;
     unsigned char *mnemonic;   /* instruction mneumonic  ex. mov eax ebx*/
@@ -35,48 +36,27 @@ instruction_t *insn_new(void);
 void insn_free(instruction_t *i);
 int insn_create_mnemonic(instruction_t *i);
 
-inline void insn_set_reg(instruction_t *i, unsigned char reg) {
-    i->reg = reg;
-}
-
-inline void insn_set_opcode(instruction_t *i, unsigned char *op) {
-    switch(op[0]) {
-        case 0x48:
-            insn_set_reg(op[1]);
-            op[1] = 0;
-            break;
-        case 0x40:
-            insn_set_reg(op[1]);
-            op[1] = 0;
-            break;
-        case 0x58:
-            insn_set_reg(op[1]);
-            op[1] = 0;
-            break;
-        case 0x50:
-            insn_set_reg(op[1]);
-            op[1] = 0;
-            break;
+static inline void insn_set_opcode(instruction_t *i, unsigned char *op) {
     memcpy(i->opcode, op, sizeof(i->opcode));
 }
 
-inline void insn_set_prefix(instruction_t *i, unsigned char *pre) {
-    mempcy(i->prefix, pre, sizeof(i->prefix));
+static inline void insn_set_prefix(instruction_t *i, unsigned char *pre) {
+    memcpy(i->prefix, pre, sizeof(i->prefix));
 }
 
-inline void insn_set_modrm(instruction_t *i, unsigned char modrm) {
+static inline void insn_set_modrm(instruction_t *i, unsigned char modrm) {
     i->modrm = modrm;
 }
 
-inline int insn_set_displacement(instruction_t *i, unsigned long dis) {
+static inline int insn_set_displacement(instruction_t *i, unsigned long dis) {
     i->displacement = dis;
 }
 
-inline int insn_set_sib(instruction_t *i, unsigned long sib) {
+static inline int insn_set_sib(instruction_t *i, unsigned long sib) {
     i->sib = sib;
 }
 
-inline int insn_set_addr(instruction_t *i, unsigned long addr) {
+static inline int insn_set_addr(instruction_t *i, unsigned long addr) {
     i->addr = addr;
 }
 
