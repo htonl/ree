@@ -6,7 +6,6 @@ enum op_encoding {
     M,
     MR,
     MI,
-    R,
     RM,
     RMI,
     O,

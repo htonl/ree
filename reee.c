@@ -7,23 +7,24 @@
 #include "instruction.h"
 
 // Max buffer for input file data
-#define FILEBUFSIZE 10 * 1024 // TODO 10K ? handle giant file
+// We will continually read, so file can be bigger than this buf
+#define FILEBUFSIZE 1024 // TODO 1K ? handle giant file
 // Registers
-#define REG_EAX 0x000
-#define REG_ECX 0x001
-#define REG_EDX 0x010
-#define REG_EBX 0x011
-#define REG_ESP 0x100
-#define REG_EBP 0x101
-#define REG_ESI 0x110
-#define REG_EDI 0x111
+#define REG_EAX 0
+#define REG_ECX 1 
+#define REG_EDX 2
+#define REG_EBX 3
+#define REG_ESP 4
+#define REG_EBP 5
+#define REG_ESI 6
+#define REG_EDI 7
 
 void print_usage() {
     printf("Usage: ./ree -i FILENAME\n");
     printf("\n");
 }
 
-const char *decode_register(unsigned short reg) {
+const char *decode_register(unsigned char reg) {
 	switch (reg) {
 		case REG_EAX:
 			return "eax";
@@ -47,7 +48,7 @@ const char *decode_register(unsigned short reg) {
 	}
 }
 
-void set_displacement(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
+void set_displacement_32(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
     *displacement += buf[*cur];
     *cur += 1;
     *displacement += (buf[*cur] << 8);
@@ -55,29 +56,77 @@ void set_displacement(unsigned int *displacement, unsigned char *buf, unsigned i
     *displacement += (buf[*cur] << 16);
     *cur += 1;
     *displacement += (buf[*cur] << 24);
+    *cur += 1;
 }
-    
 
-static unsigned char parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur, enum op_encoding encoding)
+void set_displacement_8(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
+    *displacement += buf[*cur];
+    *cur += 1;
+}
+
+/* Shhhh don't tell, I'm not keeping with my own convention...
+ * Good thing I'm the only one reading this code ;)
+ */
+void set_immediate(instruction_t *insn, unsigned char *buf, unsigned int *cur) {
+    // retf 0xca & 0xc2 require iw not id
+    if (insn->opcode[0] == 0xca || insn->opcode[0] == 0xc2) {
+        insn->immediate += buf[*cur];
+        *cur += 1;
+        insn->immediate += (buf[*cur] << 8);
+        *cur += 1;
+    } else {
+        insn->immediate += buf[*cur];
+        *cur += 1;
+        insn->immediate += (buf[*cur] << 8);
+        *cur += 1;
+        insn->immediate += (buf[*cur] << 16);
+        *cur += 1;
+        insn->immediate += (buf[*cur] << 24);
+        *cur += 1;
+    }
+}
+
+typedef struct modrm {
+    unsigned char mode;
+    unsigned char r;
+    unsigned char m;
+} modrm_t;
+
+modrm_t parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
-    unsigned char mode, r, m;
-    unsigned 
+    modrm_t ret;
     unsigned char modrm = insn->modrm;
     unsigned int displacement = 0;
     // Parse the modrm bytes to get the fields
-    mode = modrm >> 6; // Want top 2 bits
-    r = (modrm & 0x38) >> 3; // Want next 3 S bits
-    m = modrm & 0x07; // Want LS bits
+    ret.mode = modrm >> 6; // Want top 2 bits
+    ret.r = (modrm & 0x38) >> 3; // Want next 3 S bits
+    ret.m = modrm & 0x07; // Want LS bits
     
-    switch (mode) {
+    switch (ret.mode) {
         case 0:
-            if (m == 5) {
+            if (ret.m == 5) {
                 //special case displacement
-                insn_set_displacement(&displacement, buf, cur);
-            } else {
-                 
-
-     
+                set_displacement_32(&displacement, buf, cur);
+                insn_set_displacement(insn, displacement);
+            } 
+            // memory address in r/m register
+            break;
+        case 1:
+            // r/m operand's mem addr is in r/m + 1-byte displacement
+            set_displacement_8(&displacement, buf, cur);
+            insn_set_displacement(insn, displacement);
+            break;
+        case 2:
+            set_displacement_32(&displacement, buf, cur);
+            insn_set_displacement(insn, displacement);
+            break;
+        case 3:
+            break;
+        default:
+            fprintf(stderr, "%s: can't get here? ERR parsing modrm mode\n", __FUNCTION__);
+    }
+    return ret;
+}
 
 /* returns the opcode[3] bytes for this instruction
  * Note: Currently either 2-byte opcode (no 3-byte ops are supported)
@@ -121,7 +170,7 @@ static unsigned char *get_opcode(unsigned char *buf, unsigned int *cur)
 // Returns the updated cur pointer
 static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
-    unsigned char modrm = 0;
+    unsigned char modrm_byte = 0;
     hash_entry_t *he;
     he = hash_lookup(insn->opcode);
     if (!he) {
@@ -143,30 +192,207 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
      * prefix check, since if it is unique, prefix will be -1 (or r).
      */
     if (he->prefix >= 0) {
-        modrm = buf[*cur];
+        modrm_byte = buf[*cur];
         *cur += 1;
         while(he) {
-            if (modrm == he->prefix) // This comparison should be fine. 
+            if (modrm_byte == he->prefix) // This comparison should be fine. 
                 break;               // modrm will be upcasted to int
             he = he->next;           // TODO not sure about other arch's
         }
     }
 fill:
+    modrm_t modrm;
+    char *mnemonic;
     // *he should be right
     // Parse based on op encoding of the opcode
     switch (he->encoding) {
-        // Do we have a modrm byte?
         case M:
-        case MR:
-        case MI:
-        case R:
-        case RM:
-        case RMI:
-            // did we already set local var:modrm?
+            // did we already set modrm_byte?
             if (he->prefix < 0)
-                modrm = buf[*cur++];
-            insn_set_modrm(insn, modrm);
-            parse_modrm(insn);
+                modrm_byte = buf[*cur++];
+            insn_set_modrm(insn, modrm_byte);
+            modrm = parse_modrm(insn, buf, cur);
+            // We should have everything to build the mnemonic
+            
+            // Allocate a buffer for the mnemonic 64 seems like a safe bet
+            mnemonic = malloc(64); // TODO why 64???
+            if (!mnemonic) {
+                fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+                exit(-1);
+            }
+            switch (modrm.mode) {
+                case 0: // 00
+                    if (modrm.m == 5) {        
+                        snprintf(mnemonic, sizeof(mnemonic), "%s [%08x]",
+                                he->opcode_name, insn->displacement);
+                    }
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s]",
+                            he->opcode_name, decode_register(modrm.m));
+                    break;
+                case 1: // 01
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %02x]",
+                            he->opcode_name, decode_register(modrm.m),
+                            insn->displacement);
+                    break;
+                case 2: // 10
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %08x]",
+                            he->opcode_name, decode_register(modrm.m));
+                    break;
+                case 3: // 11
+                    snprintf(mnemonic, sizeof(mnemonic), "%s %s",
+                            he->opcde_name, decode_register(modrm.m));
+                    break;
+                default:
+                    fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+                    exit(-1);
+            }
+            break; // CASE M
+        case MR:
+            // did we already set modrm_byte?
+            if (he->prefix < 0)
+                modrm_byte = buf[*cur++];
+            insn_set_modrm(insn, modrm_byte);
+            modrm = parse_modrm(insn, buf, cur);
+            // We should have everything to build the mnemonic
+            
+            // Allocate a buffer for the mnemonic
+            // guess is 64 bytes
+            mnemonic = malloc(64);
+            if (!mnemonic) {
+                fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+                exit(-1);
+            }
+            switch (modrm.mode) {
+                case 0: // 00
+                    if (modrm.m == 5) {        
+                        snprintf(mnemonic, sizeof(mnemonic), "%s [%08x], %s",
+                                he->opcode_name, insn->displacement, decode_register(modrm.r));
+                    }
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s], %s",
+                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                case 1: // 01
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %02x], %s",
+                            he->opcode_name, decode_register(modrm.m),
+                            insn->displacement, decode_register(modrm.r));
+                    break;
+                case 2: // 10
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %08x], %s",
+                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                case 3: // 11
+                    snprintf(mnemonic, sizeof(mnemonic), "%s %s, %s",
+                            he->opcde_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                default:
+                    fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+                    exit(-1);
+            }
+            break;
+        case MI:
+            // did we already set modrm_byte?
+            if (he->prefix < 0)
+                modrm_byte = buf[*cur++];
+            insn_set_modrm(insn, modrm_byte);
+            modrm = parse_modrm(insn, buf, cur);
+            /* Immediate must be next in the buffer because parse_modrm
+             * handles the displacement for us
+             */
+            set_immediate(insn, buf, cur);
+            // We should have everything to build the mnemonic
+            
+            // Allocate a buffer for the mnemonic
+            // guess is 64 bytes
+            mnemonic = malloc(64);
+            if (!mnemonic) {
+                fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+                exit(-1);
+            }
+            switch (modrm.mode) {
+                case 0: // 00
+                    if (modrm.m == 5) {        
+                        snprintf(mnemonic, sizeof(mnemonic), "%s [%08x], %08x",
+                                he->opcode_name, insn->displacement, insn->immediate);
+                    }
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s], %08x",
+                            he->opcode_name, decode_register(modrm.m), insn->immediate);
+                    break;
+                case 1: // 01
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %02x], %08x",
+                            he->opcode_name, decode_register(modrm.m),
+                            insn->displacement, insn->immediate);
+                    break;
+                case 2: // 10
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %08x], %08x",
+                            he->opcode_name, decode_register(modrm.m), insn->immediate);
+                    break;
+                case 3: // 11
+                    snprintf(mnemonic, sizeof(mnemonic), "%s %s, %08x",
+                            he->opcde_name, decode_register(modrm.m), insn->immediate);
+                    break;
+                default:
+                    fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+                    exit(-1);
+            }
+            break;
+        case RM:
+            // did we already set modrm_byte?
+            if (he->prefix < 0)
+                modrm_byte = buf[*cur++];
+            insn_set_modrm(insn, modrm_byte);
+            modrm = parse_modrm(insn, buf, cur);
+            // We should have everything to build the mnemonic
+            
+            // Allocate a buffer for the mnemonic
+            // guess is 64 bytes
+            mnemonic = malloc(64);
+            if (!mnemonic) {
+                fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+                exit(-1);
+            }
+            switch (modrm.mode) {
+                case 0: // 00
+                    if (modrm.m == 5) {        
+                        snprintf(mnemonic, sizeof(mnemonic), "%s [%08x], %s",
+                                he->opcode_name, insn->displacement, decode_register(modrm.r));
+                    }
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s], %s",
+                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                case 1: // 01
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %02x], %s",
+                            he->opcode_name, decode_register(modrm.m),
+                            insn->displacement, decode_register(modrm.r));
+                    break;
+                case 2: // 10
+                    snprintf(mnemonic, sizeof(mnemonic), "%s [%s + %08x], %s",
+                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                case 3: // 11
+                    snprintf(mnemonic, sizeof(mnemonic), "%s %s, %s",
+                            he->opcde_name, decode_register(modrm.m), decode_register(modrm.r));
+                    break;
+                default:
+                    fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+                    exit(-1);
+            }
+            break;
+        case RMI:
+            // did we already set modrm_byte?
+            if (he->prefix < 0)
+                modrm_byte = buf[*cur++];
+            insn_set_modrm(insn, modrm_byte);
+            modrm = parse_modrm(insn, buf, cur);
+            // We should have everything to build the mnemonic
+            
+            // Allocate a buffer for the mnemonic
+            // 9 for the addr, 15 max bytes of instruction, max mnemonic (safe
+            // guess is 64 bytes)
+            mnemonic = malloc(9 + 15 + 64);
+            if (!mnemonic) {
+                fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+                exit(-1);
+            }
             break;
         case O:
         case OI:

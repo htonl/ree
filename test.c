@@ -4,6 +4,7 @@
 #include "tree.h"
 #include "hash.h"
 
+
 int main(void) {
     // Print type sizes
     printf(" ----- Test 1: printing sizes -----\n");

@@ -1,5 +1,17 @@
 #include <stdio.h>
 
+struct foo {
+    int i;
+    int j;
+};
+
+struct foo foobar(void) {
+    struct foo f;
+    f.i = 10;
+    f.j = 12;
+    return f;
+}
+
 void voo(unsigned int *f)
 {
     *f++;
@@ -43,6 +55,11 @@ int main(void)
 
     int i = 0xffffffb1;
     printf("%d\n", i);
+    
+    struct foo f;
+    f = foobar();
+    printf("foo.i = %d, foo.j = %d\n", f.i, f.j);
+
     return 0;
 
 }

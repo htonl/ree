@@ -67,8 +67,6 @@ static enum op_encoding strtoop_encoding(char *tok) {
         ret = MR;
     } else if(!strncmp(tok,"MI",strlen(tok))) {
         ret = MI;
-    } else if(!strncmp(tok,"R",strlen(tok))) {
-        ret = R;
     } else if(!strncmp(tok,"RM",strlen(tok))) {
         ret = RM;
     } else if(!strncmp(tok,"RMI",strlen(tok))) {

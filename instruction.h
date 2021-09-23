@@ -16,19 +16,19 @@
  * 	4) build tree of instruction_t structs
  * 	5) once EOF of input file, traverse the tree of insn
  */
-typedef struct __attribute__((__packed__)){ 
+typedef struct { 
     unsigned long addr;         /* address of the instruction */
     unsigned char prefix[14];   /* 14 because valid instructions
                                 / are < 15 & 1 byte op is req */
     unsigned char opcode[3];    /* Max Opcode is 3 bytes */
+    unsigned char insn_bytes[15];
     unsigned char modrm;
     unsigned char reg;
     unsigned char sib;
-    unsigned long displacement; /* These are long for future 64-bit support */
-    unsigned long immediate;
+    int displacement; /* These are long for future 64-bit support */
+    int immediate;
     unsigned char *mnemonic;   /* instruction mneumonic  ex. mov eax ebx*/
     unsigned char is_control_flow;
-    unsigned char unused[3];    /* Zero padding to 48 bytes */
 } instruction_t;
 
 instruction_t *insn_new(void);
@@ -70,10 +70,6 @@ inline void insn_set_modrm(instruction_t *i, unsigned char modrm) {
 
 inline int insn_set_displacement(instruction_t *i, unsigned long dis) {
     i->displacement = dis;
-}
-
-inline int insn_set_immediate(instruction_t *i, unsigned long imm) {
-    i->immediate = imm;
 }
 
 inline int insn_set_sib(instruction_t *i, unsigned long sib) {
