@@ -80,7 +80,6 @@ void set_displacement_8(unsigned int *displacement, unsigned char *buf, unsigned
  * Good thing I'm the only one reading this code ;)
  */
 void set_immediate(instruction_t *insn, unsigned char *buf, unsigned int *cur) {
-    // retf 0xca & 0xc2 require iw not id
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
 #endif
@@ -88,6 +87,7 @@ void set_immediate(instruction_t *insn, unsigned char *buf, unsigned int *cur) {
         insn->immediate += buf[*cur];
         *cur += 1;
     } else if (insn->opcode[0] == 0xca || insn->opcode[0] == 0xc2) {
+    // retf 0xca & 0xc2 require iw not id
         insn->immediate += buf[*cur];
         *cur += 1;
         insn->immediate += (buf[*cur] << 8);
@@ -151,7 +151,7 @@ modrm_t parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 
 /* returns the opcode[3] bytes for this instruction
  * Note: Currently either 2-byte opcode (no 3-byte ops are supported)
- * OR the 1-byte opcode + register encoded as byte value
+ * OR the 1-byte opcode + register prefix encoded as byte value
  */
 static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
@@ -187,13 +187,12 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
         // Nothing special just take the *current byte
         opcode[0] = buf[*cur];
     }
-    
     *cur += 1;
     insn_set_opcode(insn, opcode);
     return 0;
 }
 
-// Returns the updated cur pointer
+// cur properly updated
 static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
     unsigned char modrm_byte = 0;
@@ -214,16 +213,17 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
         // opcode match already given, and no next so only hash hit.
         goto fill;
     }
-    /* 2 cases: 1) We need to also match on a prefix / value
-     *          2) We have a collision between 2 distinct opcodes
+    /* 2 cases right here: 1) We need to also match on a prefix / value
+     *                     2) We have a collision between 2 distinct opcodes
      *
      * If we are case 1, then he->prefix will be >= 0, since multiple
      * opcode entries need to have unique prefixes.
      *
-     * If we are case 2, then we already have the right he. Since there is
+     * If we are case 2, then we already have the right *he. Since there is
      * only 1 entry in this list with this opcode. This is also check in the
      * prefix check, since if it is unique, prefix will be -1 (or r).
      */
+    // CASE 1
     if (he->prefix >= 0) {
         modrm_byte = buf[*cur];
         *cur += 1;
@@ -233,13 +233,15 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
             he = he->next; 
         }
     }
+    // CASE 2 no check needed he already good
 fill:
-    // *he should be right
+    // *he should be right here
     // Parse based on op encoding of the opcode
     switch (he->encoding) {
         case M:
             // did we already set modrm_byte?
             if (he->prefix < 0) {
+                // TODO this check is ugly, make this more readable
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }

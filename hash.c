@@ -6,7 +6,7 @@
 hash_entry_t hashtable[HASHTABLESIZE];
 
 static unsigned long hash(unsigned int op) {
-    op = ((op >> 16) ^ op) * 0x45d9f3b;
+    op = ((op >> 16) ^ op) * 0x45d9f3b; // TODO cite this
     op = ((op >> 16) ^ op) * 0x45d9f33;
     op = (op >> 16) ^ op;
     return (op % HASHTABLESIZE);
