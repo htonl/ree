@@ -31,7 +31,7 @@ int tree_insert(node_t **tree, instruction_t *insn) {
     tmp = *tree;
     while (1) {
     	// find where to insert the node
-        if (insn->addr > tmp->insn->addr) {
+        if (insn->addr >= tmp->insn->addr) {
             if (NULL == tmp->right) {
                 tmp->right = new_node;
                 goto done;
@@ -51,15 +51,45 @@ done:
     return 0;
 }
 
+// Return 0 if swap was made, -1 if not
+int tree_add_label(node_t *tree, unsigned int addr, char *label) {
+    node_t *tmp;
+    tmp = tree;
+    while(tmp != NULL) {
+        if (tmp->insn->addr == addr) {
+            memcpy(tmp->insn->label, label, sizeof(tmp->insn->label));
+            return 0;
+        } else if (addr < tmp->insn->addr) {
+            tmp = tmp->left;
+        } else if (addr >= tmp->insn->addr) {
+            tmp = tmp->right;
+        }
+    }
+    return -1;
+}
+
 /* 
  * @brief simple traversal from smallest to largest node
  * @param tree to traverse
  */
 void tree_traverse(node_t *tree) {
+    int i;
+    unsigned int count = 0;
     if (tree != NULL) {
         tree_traverse(tree->left);
-        printf("%08x \t %s \n", tree->insn->addr,
-                                tree->insn->mnemonic);
+        if (tree->insn->label[0] != 0)
+            printf("%s:\n", tree->insn->label);
+        printf("%08x:  ", tree->insn->addr);
+        count += 9;
+        for (i = 0; i < tree->insn->insn_size ; i++) {
+            printf("%02x", tree->insn->insn_bytes[i]);
+            count += 2;
+        }
+        while (count < 30) {
+            printf(" ");
+            count += 1;
+        }
+        printf(" %s\n", tree->insn->mnemonic);
         tree_traverse(tree->right);
     }
 }

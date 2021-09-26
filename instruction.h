@@ -22,6 +22,7 @@ typedef struct {
     unsigned char prefix[14];   /* 14 because valid instructions
                                 / are < 15 & 1 byte op is req */
     unsigned char opcode[3];    /* Max Opcode is 3 bytes */
+    unsigned int insn_size;
     unsigned char insn_bytes[15];
     unsigned char modrm;
     unsigned char sib;
@@ -29,6 +30,7 @@ typedef struct {
     int displacement; /* These are long for future 64-bit support */
     int immediate;
     unsigned char *mnemonic;   /* instruction mneumonic  ex. mov eax ebx*/
+    unsigned char label[17];
     unsigned char is_control_flow;
 } instruction_t;
 

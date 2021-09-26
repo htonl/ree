@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 int main(void) {
     unsigned char byte1 = 0xff;
@@ -18,5 +19,15 @@ int main(void) {
     printf("(int) byte1: %x\n", (int)byte1);
     printf("(int) byte2: %x\n", (int)byte2);
     printf("(int) byte3: %x\n", (int)byte3);
+
+    unsigned int test4 = 0xfe;
+    signed char test1;
+    test1 = test4;
+    printf("%d\n", test1);
+
+    unsigned int test_4 = 0xfffffff6;
+    signed int test_neg4  = test_4;
+    printf("%d\n", test_neg4);
+    printf("%d\n", abs(test_neg4));
     return 0;
 }

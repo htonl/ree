@@ -2,13 +2,15 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <stdbool.h>
 #include "hash.h"
+#include "list.h"
 #include "tree.h"
 #include "instruction.h"
 
 // Max buffer for input file data
 // We will continually read, so file can be bigger than this buf
-#define FILEBUFSIZE 10 * 1024 // TODO 1K ? handle giant file
+#define FILEBUFSIZE 64 // TODO 1K ? handle giant file
 #define MAXMNEMONICSIZE 8 * 8 //in bytes
 // Registers
 #define REG_EAX 0
@@ -20,7 +22,14 @@
 #define REG_ESI 6
 #define REG_EDI 7
 
+#define CF_NOT_CF 0     // Not a control flow insn
+#define CF_FORWARD 1    // Control flow forward disp
+#define CF_BACKWARD 2   // Control flow backward disp
+#define CF_DIRECT 3     // Control flow direct to
+
+// Globals
 node_t *insn_tree; // Binary tree to hold the instruction_t's before we print them
+list_node_t *label_list; // linked list to hold labels for CF instructions 
 
 void print_usage() {
     printf("Usage: ./ree -i FILENAME\n");
@@ -54,6 +63,20 @@ const char *decode_register(unsigned char reg) {
 	}
 }
 
+static void add_labels_to_tree() {
+    list_node_t *tmp;
+    tmp = label_list;
+#ifdef DEBUG
+    printf("%s\n", __FUNCTION__);
+#endif
+    while(tmp != NULL) {
+        if (tree_add_label(insn_tree, tmp->addr, tmp->label_name)) {
+            fprintf(stderr, "%s: No insn with addr %x\n", __FUNCTION__, tmp->addr);
+        }
+        tmp = tmp->next;
+    }
+}
+
 void set_displacement_32(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
@@ -83,7 +106,7 @@ void set_immediate(instruction_t *insn, unsigned char *buf, unsigned int *cur) {
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
 #endif
-    if (insn->opcode[0] == 0x74 || insn->opcode[0] == 0x75) {
+    if (insn->opcode[0] == 0x74 || insn->opcode[0] == 0x75 || insn->opcode[0] == 0xeb) {
         insn->immediate += buf[*cur];
         *cur += 1;
     } else if (insn->opcode[0] == 0xca || insn->opcode[0] == 0xc2) {
@@ -160,7 +183,7 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
     printf("%s\n", __FUNCTION__);
 #endif
     // Handle 0x0f two byte instructions
-    if (buf[*cur] == 0xf0) {
+    if (buf[*cur] == 0x0f || buf[*cur] == 0xf2) {
         opcode[0] = buf[*cur];
         *cur += 1;
         opcode[1] = buf[*cur];
@@ -196,18 +219,26 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
 static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
     unsigned char modrm_byte = 0;
+    signed char cf_offset1;
+    signed int cf_offset4;
+    unsigned int cf_offset;
+    int set_modrm = 0;
     hash_entry_t *he;
     char *mnemonic;
     modrm_t modrm;
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
 #endif
-
     he = hash_lookup(insn->opcode);
     if (!he) {
-        fprintf(stderr, "%s: unrecognized instruction: %02x %02x %02x\n", __FUNCTION__, insn->opcode[0],
-                insn->opcode[1], insn->opcode[2]);
-        return -1;
+        mnemonic = malloc(MAXMNEMONICSIZE); // TODO why 64???
+        if (!mnemonic) {
+            fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+            exit(-1);
+        }
+        snprintf(mnemonic, MAXMNEMONICSIZE, "db %02x", insn->opcode[0]);
+        insn->mnemonic = mnemonic;
+        return 0;
     }
     if (NULL == he->next) {
         // opcode match already given, and no next so only hash hit.
@@ -226,22 +257,34 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
     // CASE 1
     if (he->prefix >= 0) {
         modrm_byte = buf[*cur];
+        set_modrm = 1;
         *cur += 1;
         while(he) {
-            if ((modrm_byte & 0x7) == he->prefix) // TODO This comparison should be fine?
+            if ((modrm_byte & 0x38) >> 3 == he->prefix) // TODO This comparison should be fine?
                 break;                       
             he = he->next; 
         }
     }
+    // It's possible to have a null he here again...
+    if (!he) {
+        mnemonic = malloc(MAXMNEMONICSIZE); // TODO why 64???
+        if (!mnemonic) {
+            fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
+            exit(-1);
+        }
+        snprintf(mnemonic, MAXMNEMONICSIZE, "db %02x", insn->opcode[0]);
+        insn->mnemonic = mnemonic;
+        return 0;
+    }
     // CASE 2 no check needed he already good
 fill:
     // *he should be right here
+
     // Parse based on op encoding of the opcode
     switch (he->encoding) {
         case M:
             // did we already set modrm_byte?
-            if (he->prefix < 0) {
-                // TODO this check is ugly, make this more readable
+            if (!set_modrm) {
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }
@@ -258,19 +301,20 @@ fill:
             switch (modrm.mode) {
                 case 0: // 00
                     if (modrm.m == 5) {        
-                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08x]",
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08xh]",
                                 he->opcode_name, insn->displacement);
+                        break;
                     }
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s]",
                             he->opcode_name, decode_register(modrm.m));
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02x]",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02xh]",
                             he->opcode_name, decode_register(modrm.m),
                             insn->displacement);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08x]",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08xh]",
                             he->opcode_name, decode_register(modrm.m),
                             insn->displacement);
                     break;
@@ -285,7 +329,7 @@ fill:
             break; // CASE M
         case MR:
             // did we already set modrm_byte?
-            if (he->prefix < 0) {
+            if (!set_modrm) {
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }
@@ -303,19 +347,20 @@ fill:
             switch (modrm.mode) {
                 case 0: // 00
                     if (modrm.m == 5) {        
-                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08x], %s",
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08xh], %s",
                                 he->opcode_name, insn->displacement, decode_register(modrm.r));
+                        break;
                     }
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s], %s",
                             he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02x], %s",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02xh], %s",
                             he->opcode_name, decode_register(modrm.m),
                             insn->displacement, decode_register(modrm.r));
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08x], %s",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08xh], %s",
                             he->opcode_name, decode_register(modrm.m), insn->displacement,
                             decode_register(modrm.r));
                     break;
@@ -330,7 +375,7 @@ fill:
             break; // CASE MR
         case MI:
             // did we already set modrm_byte?
-            if (he->prefix < 0) {
+            if (!set_modrm) {
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }
@@ -352,24 +397,25 @@ fill:
             switch (modrm.mode) {
                 case 0: // 00
                     if (modrm.m == 5) {        
-                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08x], %08x",
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%08xh], %08x",
                                 he->opcode_name, insn->displacement, insn->immediate);
+                        break;
                     }
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s], %08xh",
                             he->opcode_name, decode_register(modrm.m), insn->immediate);
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02x], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02xh], %08x",
                             he->opcode_name, decode_register(modrm.m),
                             insn->displacement, insn->immediate);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08x], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08xh], %08x",
                             he->opcode_name, decode_register(modrm.m), insn->displacement,
                             insn->immediate);
                     break;
                 case 3: // 11
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %08xh",
                             he->opcode_name, decode_register(modrm.m), insn->immediate);
                     break;
                 default:
@@ -379,7 +425,7 @@ fill:
             break; // CASE MI
         case RM:
             // did we already set modrm_byte?
-            if (he->prefix < 0) {
+            if (!set_modrm) {
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }
@@ -397,25 +443,26 @@ fill:
             switch (modrm.mode) {
                 case 0: // 00
                     if (modrm.m == 5) {        
-                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%08x]",
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%08xh]",
                                 he->opcode_name, decode_register(modrm.r), insn->displacement);
+                        break;
                     }
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s]",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m));
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %02x]",
-                            he->opcode_name, decode_register(modrm.m),
-                            decode_register(modrm.r), insn->displacement);
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %02xh]",
+                            he->opcode_name, decode_register(modrm.r),
+                            decode_register(modrm.m), insn->displacement);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08x]",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08xh]",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->displacement);
                     break;
                 case 3: // 11
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %s",
-                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
+                            he->opcode_name, decode_register(modrm.r), decode_register(modrm.m));
                     break;
                 default:
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
@@ -424,7 +471,7 @@ fill:
             break; // CASE RM
         case RMI:
             // did we already set modrm_byte?
-            if (he->prefix < 0) {
+            if (!set_modrm) {
                 modrm_byte = buf[*cur];
                 *cur += 1;
             }
@@ -446,28 +493,29 @@ fill:
             switch (modrm.mode) {
                 case 0: // 00
                     if (modrm.m == 5) {        
-                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%08x], %08x",
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%08xh], %08x",
                                 he->opcode_name, decode_register(modrm.r), insn->displacement,
                                 insn->immediate);
+                        break;
                     }
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s], %08xh",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->immediate);
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %02x], %08x",
-                            he->opcode_name, decode_register(modrm.m),
-                            decode_register(modrm.r), insn->displacement,
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %02xh], %08xh",
+                            he->opcode_name, decode_register(modrm.r),
+                            decode_register(modrm.m), insn->displacement,
                             insn->immediate);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08x], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, [%s + %08xh], %08xh",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->displacement, insn->immediate);
                     break;
                 case 3: // 11
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %s, %08x",
-                            he->opcode_name, decode_register(modrm.m), decode_register(modrm.r),
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %s, %08xh",
+                            he->opcode_name, decode_register(modrm.r), decode_register(modrm.m),
                             insn->immediate);
                     break;
                 default:
@@ -496,7 +544,7 @@ fill:
                 fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
                 exit(-1);
             }
-            snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %08x", he->opcode_name,
+            snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %08xh", he->opcode_name,
                     decode_register(insn->reg), insn->immediate);
             break; // CASE OI
         case ZO:
@@ -516,7 +564,12 @@ fill:
                 fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
                 exit(-1);
             }
-            snprintf(mnemonic, MAXMNEMONICSIZE, "%s %08x", he->opcode_name,
+            if (insn->opcode[0] == 0xca || insn->opcode[0] == 0xc2) {
+                snprintf(mnemonic, MAXMNEMONICSIZE, "%s %04xh", he->opcode_name,
+                        insn->immediate);
+                break;
+            }
+            snprintf(mnemonic, MAXMNEMONICSIZE, "%s %08xh", he->opcode_name,
                     insn->immediate);
             break; // CASE I
         case D:
@@ -528,31 +581,63 @@ fill:
                 fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
                 exit(-1);
             }
-            if (he->opcode[0] == 0x74 || he->opcode[0] == 0x75) {
-                snprintf(mnemonic, MAXMNEMONICSIZE, "%s %02x", he->opcode_name,
-                    insn->immediate);
+            if (he->opcode[0] == 0x74 || he->opcode[0] == 0x75 || he->opcode[0] == 0xeb) {
+                cf_offset1 = insn->immediate;
+                if (cf_offset1 < 0) {
+                    cf_offset = insn->addr - (unsigned int)abs(cf_offset1) + 2;
+                } else {
+                    cf_offset = insn->addr + cf_offset1 + 2;
+                }
+                if (he->opcode[1] != 0) {
+                    cf_offset++;
+                }
+                if (he->opcode[2] != 0) {
+                    cf_offset++;
+                }
+                snprintf(mnemonic, MAXMNEMONICSIZE, "%s offset_%08xh", he->opcode_name,
+                    cf_offset);
+                label_list = list_add(label_list, cf_offset);
             } else {
-                snprintf(mnemonic, MAXMNEMONICSIZE, "%s %08x", he->opcode_name,
-                    insn->immediate);
+                cf_offset4 = insn->immediate;
+                if (cf_offset4 < 0) {
+                    cf_offset = insn->addr - (unsigned int)abs(cf_offset4) + 5;
+                } else {
+                    cf_offset = insn->addr + cf_offset4 + 5;
+                }
+                if (he->opcode[1] != 0) {
+                    cf_offset++;
+                }
+                if (he->opcode[2] != 0) {
+                    cf_offset++;
+                }
+                snprintf(mnemonic, MAXMNEMONICSIZE, "%s offset_%08xh", he->opcode_name,
+                    cf_offset);
+                label_list = list_add(label_list, cf_offset);
             }
             break; // CASE I
 
         default:
             fprintf(stderr, "%s: default op_encoding. Can't get here\n", __FUNCTION__);
     }
+    // can now check for CF
     insn->mnemonic = mnemonic;
     return 0;
 }
 
-unsigned int disass_buf(unsigned char *buf, unsigned int filesize) {
-    unsigned int cur = 0, addr = 0;
+unsigned int disass_buf(unsigned char *buf, unsigned int first_addr, unsigned int filesize) {
+    unsigned int cur = 0, i;
+    unsigned int addr = first_addr;
     unsigned char opcode[3];
     int ret;
     instruction_t *insn;
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
 #endif
-    while (cur < FILEBUFSIZE && cur < filesize) {
+    while (cur + first_addr < filesize) {
+        if (cur + 16 >= FILEBUFSIZE)
+            return cur;
+            // We are almost out of buffer, lets re-fill on an instruction
+            // boundary
         insn = insn_new();
         if (NULL == insn) {
             fprintf(stderr, "%s Unable to allocate next instruction\n", __FUNCTION__);
@@ -563,17 +648,24 @@ unsigned int disass_buf(unsigned char *buf, unsigned int filesize) {
         // fill in what we know from the hashtable entry for this opcode
         // fill_from_hash needs the data buf in case there is a prefix to parse
         ret = fill_from_hash(insn, buf, &cur); // TODO error handling on bad ret
-        addr += (cur - insn->addr);
-        tree_insert(&insn_tree, insn);
+        // fill bytes that were read into the insn_bytes
+        for (i = insn->addr; i < (first_addr + cur) ; i++) {
+            insn->insn_bytes[i - insn->addr] = buf[i - first_addr];
+        }
+        insn->insn_size = (first_addr + cur) - insn->addr;
+        addr = cur + first_addr;
+        if (tree_insert(&insn_tree, insn))
+            fprintf(stderr, "%s: Failed to insert tree node\n", __FUNCTION__);
     }
-    return 0;
+    return cur;
 }
 
 void disass_file(char *filename) {
     FILE *fp;
     unsigned char *buffer;
     unsigned int filesize;
-    int next = 1;
+    unsigned int addr = 0;
+    int next = 0, p;
 
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
@@ -592,12 +684,15 @@ void disass_file(char *filename) {
         fprintf(stderr, "%s: Cannot allocate file buffer: %s\n", __FUNCTION__, filename);
         exit(1);
     }
-    while(next) {
+    do {
         fread(buffer, FILEBUFSIZE, 1, fp);
-        next = disass_buf(buffer, filesize);
-        tree_traverse(insn_tree);
-        tree_free(insn_tree);
-    }
+        next += disass_buf(buffer, next, filesize);
+        fseek(fp, next, SEEK_SET);
+    } while(next < filesize);
+
+    add_labels_to_tree();
+    tree_traverse(insn_tree);
+    tree_free(insn_tree);
     fclose(fp);
 }
 
@@ -637,6 +732,7 @@ int main(int argc, char **argv) {
     ret = build_hashtable();
     // initialize the instruction tree
     insn_tree = NULL;
+    label_list = NULL;
     disass_file(filename);
     
     if (ret) {

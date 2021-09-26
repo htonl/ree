@@ -10,6 +10,7 @@ typedef struct node {
 } node_t;
 
 int tree_insert(node_t **tree, instruction_t *insn);
+int tree_add_label(node_t *tree, unsigned int addr, char *label);
 void tree_traverse(node_t *tree);
 void tree_free(node_t *tree);
 
