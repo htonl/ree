@@ -238,7 +238,7 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
 #endif
     he = hash_lookup(insn->opcode);
     if (!he) {
-        mnemonic = malloc(MAXMNEMONICSIZE); // TODO why 64???
+        mnemonic = malloc(MAXMNEMONICSIZE); 
         if (!mnemonic) {
             fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
             exit(-1);
@@ -267,7 +267,7 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
         set_modrm = 1;
         *cur += 1;
         while(he) {
-            if ((modrm_byte & 0x38) >> 3 == he->prefix) // TODO This comparison should be fine?
+            if ((modrm_byte & 0x38) >> 3 == he->prefix) 
                 break;                       
             he = he->next; 
         }
@@ -307,7 +307,7 @@ fill:
             // We should have everything to build the mnemonic
             
             // Allocate a buffer for the mnemonic 64 seems like a safe bet
-            mnemonic = malloc(MAXMNEMONICSIZE); // TODO why 64???
+            mnemonic = malloc(MAXMNEMONICSIZE); 
             if (!mnemonic) {
                 fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
                 exit(-1);
@@ -333,23 +333,25 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
-                    if (he->opcode[0] == 0x0f && he->opcode[1] == 0xae) {
+                    if (insn->opcode[0] == 0x0f && insn->opcode[1] == 0xae) {
                         //clflush in 11 is illegal, print this as bytes
                         // first need to create a new insn for the second op
                         // byte
                         ill_insn = insn_new();
                         ill_insn->addr = insn->addr + 1; // addr is insn->addr + 1
                         ill_insn->insn_size = 1;
+                        ill_insn->insn_bytes[0] = insn->opcode[1];
                         ill_insn->mnemonic = malloc(MAXMNEMONICSIZE);
                         if (!ill_insn->mnemonic) {
                             fprintf(stderr, "%s: OOM allocating insn\n", __FUNCTION__);
                             exit(-1);
                         }
-                        snprintf(ill_insn->mnemonic, MAXMNEMONICSIZE, "db %02x", he->opcode[1]);
+                        snprintf(ill_insn->mnemonic, MAXMNEMONICSIZE, "db %02x", insn->opcode[1]);
                         tree_insert(&insn_tree, ill_insn);
                         ill_insn = insn_new();
                         ill_insn->addr = insn->addr + 2; // addr is insn->addr + 1
                         ill_insn->insn_size = 1;
+                        ill_insn->insn_bytes[0] = insn->modrm;
                         ill_insn->mnemonic = malloc(MAXMNEMONICSIZE);
                         if (!ill_insn->mnemonic) {
                             fprintf(stderr, "%s: OOM allocating insn\n", __FUNCTION__);
@@ -509,7 +511,7 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
-                    if (he->opcode[0] == 0x8d) {
+                    if (insn->opcode[0] == 0x8d) {
                         //lea in 11 is illegal, print this as bytes
                         // first need to create a new insn for the modrm byte
                         ill_insn = insn_new();
@@ -725,9 +727,12 @@ unsigned int disass_buf(unsigned char *buf, unsigned int first_addr, unsigned in
             insn->insn_bytes[i - insn->addr] = buf[i - first_addr];
         }
         insn->insn_size = (first_addr + cur) - insn->addr;
-        if (insn->opcode[0] == 0x8d)
+        // if we are lea or clflush && modrm.mode = 11 we need to downsize since we only
+        // are outputting 1 byte when we read 2-3
+        if (insn->opcode[0] == 0x8d && insn->modrm & 0x40 && insn->modrm & 0x80)
             insn->insn_size -= 1;
-        if (insn->opcode[0] == 0x0f && insn->opcode[1] == 0xae)
+        if (insn->opcode[0] == 0x0f && insn->opcode[1] == 0xae && insn->modrm & 0x40
+                && insn->modrm & 0x80)
             insn->insn_size -= 2;
         addr = cur + first_addr;
         if (tree_insert(&insn_tree, insn))
