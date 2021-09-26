@@ -114,11 +114,15 @@ unsigned int get_num_entries(hash_entry_t *tmp) {
 //
 // Caller must parse the returned list for collisions
 hash_entry_t *hash_lookup(unsigned char *op) {
+    unsigned char zero[3] = {0};
     unsigned long idx;
     unsigned int hashable_op;
     hash_entry_t *tmp;
     hashable_op = get_hashable_op(op);
     idx = hash(hashable_op);
+    // edge case, opcode is 0x00 not a valid opcode for this assignment
+    if (!strncmp(hashtable[idx].opcode, zero, 3))
+        return NULL;
     if (!strncmp(hashtable[idx].opcode, op, 3))
         return &hashtable[idx];
     else {

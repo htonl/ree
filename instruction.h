@@ -22,6 +22,7 @@ typedef struct {
     unsigned char prefix[14];   /* 14 because valid instructions
                                 / are < 15 & 1 byte op is req */
     unsigned char opcode[3];    /* Max Opcode is 3 bytes */
+    unsigned int opcode_size;
     unsigned int insn_size;
     unsigned char insn_bytes[15];
     unsigned char modrm;

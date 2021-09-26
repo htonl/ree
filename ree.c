@@ -10,7 +10,8 @@
 
 // Max buffer for input file data
 // We will continually read, so file can be bigger than this buf
-#define FILEBUFSIZE 64 // TODO 1K ? handle giant file
+#define FILEBUFSIZE 1024 // 1K
+#define MAXBYTESBEFOREPRINT 1024 * 64 // 64K
 #define MAXMNEMONICSIZE 8 * 8 //in bytes
 // Registers
 #define REG_EAX 0
@@ -58,7 +59,7 @@ const char *decode_register(unsigned char reg) {
 		case REG_EDI:
 			return "edi";
 		default:
-			printf("%s: INVALID REGISTER\n", __FUNCTION__);
+			//printf("%s: INVALID REGISTER\n", __FUNCTION__);
 			return NULL;
 	}
 }
@@ -166,8 +167,10 @@ modrm_t parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur)
             break;
         case 3:
             break;
+#ifdef DEBUG
         default:
             fprintf(stderr, "%s: can't get here? ERR parsing modrm mode\n", __FUNCTION__);
+#endif
     }
     return ret;
 }
@@ -179,6 +182,7 @@ modrm_t parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
     unsigned char opcode[3] = {0};
+    unsigned int op_size = 1;
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
 #endif
@@ -187,6 +191,7 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
         opcode[0] = buf[*cur];
         *cur += 1;
         opcode[1] = buf[*cur];
+        op_size += 1;
     }
     // Handle reg addition special cases
     // Use second byte of the opcode to store the register byte
@@ -212,6 +217,7 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
     }
     *cur += 1;
     insn_set_opcode(insn, opcode);
+    insn->opcode_size = op_size;
     return 0;
 }
 
@@ -222,6 +228,7 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
     signed char cf_offset1;
     signed int cf_offset4;
     unsigned int cf_offset;
+    instruction_t *ill_insn;
     int set_modrm = 0;
     hash_entry_t *he;
     char *mnemonic;
@@ -267,7 +274,14 @@ static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsi
     }
     // It's possible to have a null he here again...
     if (!he) {
-        mnemonic = malloc(MAXMNEMONICSIZE); // TODO why 64???
+        if (set_modrm) // rewind if we read too much
+            *cur -= 1;
+        if (insn->opcode_size > 1) {
+            *cur -= 1;
+            insn->opcode[1] = 0;
+            insn->opcode[2] = 0;
+        }
+        mnemonic = malloc(MAXMNEMONICSIZE);
         if (!mnemonic) {
             fprintf(stderr, "%s: OOM allocating mnemonic\n", __FUNCTION__);
             exit(-1);
@@ -319,11 +333,41 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
+                    if (he->opcode[0] == 0x0f && he->opcode[1] == 0xae) {
+                        //clflush in 11 is illegal, print this as bytes
+                        // first need to create a new insn for the second op
+                        // byte
+                        ill_insn = insn_new();
+                        ill_insn->addr = insn->addr + 1; // addr is insn->addr + 1
+                        ill_insn->insn_size = 1;
+                        ill_insn->mnemonic = malloc(MAXMNEMONICSIZE);
+                        if (!ill_insn->mnemonic) {
+                            fprintf(stderr, "%s: OOM allocating insn\n", __FUNCTION__);
+                            exit(-1);
+                        }
+                        snprintf(ill_insn->mnemonic, MAXMNEMONICSIZE, "db %02x", he->opcode[1]);
+                        tree_insert(&insn_tree, ill_insn);
+                        ill_insn = insn_new();
+                        ill_insn->addr = insn->addr + 2; // addr is insn->addr + 1
+                        ill_insn->insn_size = 1;
+                        ill_insn->mnemonic = malloc(MAXMNEMONICSIZE);
+                        if (!ill_insn->mnemonic) {
+                            fprintf(stderr, "%s: OOM allocating insn\n", __FUNCTION__);
+                            exit(-1);
+                        }
+                        snprintf(ill_insn->mnemonic, MAXMNEMONICSIZE, "db %02x", insn->modrm);
+                        tree_insert(&insn_tree, ill_insn);
+                        // Now handle the original opcode
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "db %02x", insn->opcode[0]);
+                        break;
+                    }
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s",
                             he->opcode_name, decode_register(modrm.m));
                     break;
                 default:
+#ifdef DEBUG
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+#endif
                     exit(-1);
             }
             break; // CASE M
@@ -369,7 +413,9 @@ fill:
                             he->opcode_name, decode_register(modrm.m), decode_register(modrm.r));
                     break;
                 default:
+#ifdef DEBUG
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+#endif
                     exit(-1);
             }
             break; // CASE MR
@@ -419,7 +465,9 @@ fill:
                             he->opcode_name, decode_register(modrm.m), insn->immediate);
                     break;
                 default:
+#ifdef DEBUG
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+#endif
                     exit(-1);
             }
             break; // CASE MI
@@ -461,11 +509,32 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
+                    if (he->opcode[0] == 0x8d) {
+                        //lea in 11 is illegal, print this as bytes
+                        // first need to create a new insn for the modrm byte
+                        ill_insn = insn_new();
+                        ill_insn->addr = insn->addr + 1; // addr is insn->addr + 1
+                        ill_insn->insn_size = 1;
+                        ill_insn->insn_bytes[0] = insn->modrm;
+                        ill_insn->mnemonic = malloc(MAXMNEMONICSIZE);
+                        if (!ill_insn->mnemonic) {
+                            fprintf(stderr, "%s: OOM allocating insn\n", __FUNCTION__);
+                            exit(-1);
+                        }
+                        snprintf(ill_insn->mnemonic, MAXMNEMONICSIZE, "db %02x", insn->modrm);
+                        tree_insert(&insn_tree, ill_insn);
+                        // Now handle the original opcode
+                        insn->insn_bytes[1] = 0;
+                        snprintf(mnemonic, MAXMNEMONICSIZE, "db %02x", insn->opcode[0]);
+                        break;
+                    }
                     snprintf(mnemonic, MAXMNEMONICSIZE, "%s %s, %s",
                             he->opcode_name, decode_register(modrm.r), decode_register(modrm.m));
                     break;
                 default:
+#ifdef DEBUG
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+#endif
                     exit(-1);
             }
             break; // CASE RM
@@ -519,7 +588,9 @@ fill:
                             insn->immediate);
                     break;
                 default:
+#ifdef DEBUG
                     fprintf(stderr, "%s: Can't get here\n", __FUNCTION__);
+#endif
                     exit(-1);
             }
             break; // CASE RMI
@@ -615,9 +686,10 @@ fill:
                 label_list = list_add(label_list, cf_offset);
             }
             break; // CASE I
-
+#ifdef DEBUG
         default:
             fprintf(stderr, "%s: default op_encoding. Can't get here\n", __FUNCTION__);
+#endif
     }
     // can now check for CF
     insn->mnemonic = mnemonic;
@@ -647,12 +719,16 @@ unsigned int disass_buf(unsigned char *buf, unsigned int first_addr, unsigned in
         set_opcode(insn, buf, &cur);
         // fill in what we know from the hashtable entry for this opcode
         // fill_from_hash needs the data buf in case there is a prefix to parse
-        ret = fill_from_hash(insn, buf, &cur); // TODO error handling on bad ret
+        ret = fill_from_hash(insn, buf, &cur); // error handling on bad ret?
         // fill bytes that were read into the insn_bytes
         for (i = insn->addr; i < (first_addr + cur) ; i++) {
             insn->insn_bytes[i - insn->addr] = buf[i - first_addr];
         }
         insn->insn_size = (first_addr + cur) - insn->addr;
+        if (insn->opcode[0] == 0x8d)
+            insn->insn_size -= 1;
+        if (insn->opcode[0] == 0x0f && insn->opcode[1] == 0xae)
+            insn->insn_size -= 2;
         addr = cur + first_addr;
         if (tree_insert(&insn_tree, insn))
             fprintf(stderr, "%s: Failed to insert tree node\n", __FUNCTION__);
@@ -688,11 +764,20 @@ void disass_file(char *filename) {
         fread(buffer, FILEBUFSIZE, 1, fp);
         next += disass_buf(buffer, next, filesize);
         fseek(fp, next, SEEK_SET);
+        if (next >= MAXBYTESBEFOREPRINT) {
+            // This is a huge file, print what we have before continuing
+            add_labels_to_tree();
+            tree_traverse(insn_tree);
+            list_destroy(label_list);
+            tree_free(insn_tree);
+            insn_tree = NULL;
+            label_list = NULL;
+        }
     } while(next < filesize);
-
     add_labels_to_tree();
     tree_traverse(insn_tree);
     tree_free(insn_tree);
+    list_destroy(label_list);
     fclose(fp);
 }
 
@@ -727,7 +812,7 @@ int main(int argc, char **argv) {
         print_usage();
         abort();
     }
-    printf("Disassembling filename: %s\n", filename);
+    // R10 printf("Disassembling filename: %s\n", filename);
     // build the hashtable of supported instructions
     ret = build_hashtable();
     // initialize the instruction tree
