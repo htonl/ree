@@ -17,7 +17,7 @@ enum op_encoding {
 
 typedef struct hash_entry {
     unsigned char opcode[3];
-    unsigned char opcode_name[16]; // TODO is 16 long enough for all opcode names?
+    unsigned char opcode_name[16]; // 16 long enough for all supported opcode names
     enum op_encoding encoding;
     int prefix;
     struct hash_entry *next;
