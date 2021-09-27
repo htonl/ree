@@ -145,13 +145,13 @@ int build_hashtable(void) {
     he = malloc(sizeof(hash_entry_t));
     if (NULL == he) {
         fprintf(stderr, "%s: cannot allocate hash_entry\n", __FUNCTION__);
-        return -1;
+        exit(-1);
     }
     memset(he, 0, sizeof(hash_entry_t));
     fp = fopen(HASHFILE, "r");
     if (NULL == fp) {
         fprintf(stderr, "%s: Error opening instructions.txt\n", __FUNCTION__);
-        return -1;
+        exit(-1);
     }
     init_hashtable();
     while ((read = getline(&line, &len, fp)) != -1) {
