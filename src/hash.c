@@ -6,9 +6,9 @@
 hash_entry_t hashtable[HASHTABLESIZE];
 
 static unsigned long hash(unsigned int op) {
-    op = ((op >> 16) ^ op) * 0x45d9f3b; // TODO cite this
-    op = ((op >> 16) ^ op) * 0x45d9f33;
-    op = (op >> 16) ^ op;
+    op = ((op >> 16) ^ op) * 0x45d9f3b; // Found this hash function on stack overflow, modified it by hand because it
+    op = ((op >> 16) ^ op) * 0x45d9f33; // was better with this data after modification (less unique op code collisions) 
+    op = (op >> 16) ^ op;               // 664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key  
     return (op % HASHTABLESIZE);
 }	
 

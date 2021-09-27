@@ -8,6 +8,34 @@
 #include "tree.h"
 #include "instruction.h"
 
+/* Memory Area 
+ * 
+ * These are the buffer sizes that control the memory usage of this program.
+ * They can be fine tuned depending on the resources of the machine running it.
+ * I ran this in a VM which has 4GB of memory allocated to it, and had no issues
+ * 
+ * TUNING:
+ *
+ * If you need to adjust, the biggest bang for the buck is going to be to lower
+ * MAXBYTESBEFOREPRINT. This is the amount of bytes we should read from the
+ * input file and store in a tree before starting to print. This doesn't mean
+ * that the original bytes are all stored in memory during this. That is
+ * controlled by FILEBUFSIZE.
+ *
+ * FILEBUFSIZE is the amount of bytes to process at a time before reading from
+ * the file again. MAXBYTESBEFOREPRINT dwarfs FILEBUFSIZE, and is therefore the
+ * first option to down tune with memory issues. FILEBUFSIZE of 1024 is actually
+ * pretty small, and won't affect the memory complexity much.
+ *
+ * MAXBYTESBEFOREPRINT is actually better estimated by 64 * 1024 * sizeof(instruction_t);
+ * That is why it can get pretty big (compared to 1KB)
+ *
+ * MAXMNEMONICSIZE should not be changed. This is my guess at a safe estimate
+ * for how long the maximum mnemonic string will be. This can probably be safely
+ * calculated, I just figured 64 is safe, and small enough. I actually haven't
+ * seen one much bigger than 40 bytes.
+ *
+ */ 
 // Max buffer for input file data
 // We will continually read, so file can be bigger than this buf
 #define FILEBUFSIZE 1024 // 1K
@@ -22,21 +50,25 @@
 #define REG_EBP 5
 #define REG_ESI 6
 #define REG_EDI 7
-
-#define CF_NOT_CF 0     // Not a control flow insn
-#define CF_FORWARD 1    // Control flow forward disp
-#define CF_BACKWARD 2   // Control flow backward disp
-#define CF_DIRECT 3     // Control flow direct to
+// Control flow flags. I think these are now unused.
+#define CF_NOT_CF 0         // Not a control flow insn
+#define CF_FORWARD 1        // Control flow forward disp
+#define CF_BACKWARD 2       // Control flow backward disp
+#define CF_DIRECT 3         // Control flow direct to
 
 // Globals
-node_t *insn_tree; // Binary tree to hold the instruction_t's before we print them
-list_node_t *label_list; // linked list to hold labels for CF instructions 
+node_t *insn_tree;          // Binary tree to hold the instruction_t's before we print them
+list_node_t *label_list;    // linked list to hold labels for CF instructions 
 
+/* Print the usage of this program */
 void print_usage() {
     printf("Usage: ./ree -i FILENAME\n");
     printf("\n");
 }
 
+/*
+ * Print the decoded version of the register byte
+ */
 const char *decode_register(unsigned char reg) {
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
@@ -64,6 +96,10 @@ const char *decode_register(unsigned char reg) {
 	}
 }
 
+/*
+ * Traverse the label_list and add labels to the instructions_t's in the
+ * insn_tree
+ */
 static void add_labels_to_tree() {
     list_node_t *tmp;
     tmp = label_list;
@@ -78,6 +114,10 @@ static void add_labels_to_tree() {
     }
 }
 
+/* 
+ * read in from buf the disp_32, advance cur. Set (displacement) which will be
+ * used to fill insn
+ */
 void set_displacement_32(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
@@ -92,6 +132,10 @@ void set_displacement_32(unsigned int *displacement, unsigned char *buf, unsigne
     *cur += 1;
 }
 
+/* 
+ * read in from buf the disp_8, advance cur. Set (displacement) which will be
+ * used to fill insn
+ */
 void set_displacement_8(unsigned int *displacement, unsigned char *buf, unsigned int *cur) {
 #ifdef DEBUG
     printf("%s\n", __FUNCTION__);
@@ -100,8 +144,8 @@ void set_displacement_8(unsigned int *displacement, unsigned char *buf, unsigned
     *cur += 1;
 }
 
-/* Shhhh don't tell, I'm not keeping with my own convention...
- * Good thing I'm the only one reading this code ;)
+/* 
+ * Read in the immediate from buf, advance cur, and fill insn 
  */
 void set_immediate(instruction_t *insn, unsigned char *buf, unsigned int *cur) {
 #ifdef DEBUG
@@ -134,6 +178,9 @@ typedef struct {
     unsigned char m;
 } modrm_t;
 
+/* Parse modrm to get more elegant looking access to modrm.mode, modrm.r,
+ * modrm.m
+ */
 modrm_t parse_modrm(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
     modrm_t ret;
@@ -221,7 +268,14 @@ static unsigned int set_opcode(instruction_t *insn, unsigned char *buf, unsigned
     return 0;
 }
 
-// cur properly updated
+/* 
+ * Fill in the instruction_t pointer for this instruction from the buffer which
+ * was read from the input file. Update &cur with the number of bytes that are
+ * advanced in buf while parsing (reading modrm, imm, disp, etc.)
+ *
+ * There is lots of parsing logic here, and was written over the course of a 2
+ * week span with lots of breaks in between. It seems to mostly work. Enjoy!
+ */
 static unsigned int fill_from_hash(instruction_t *insn, unsigned char *buf, unsigned int *cur)
 {
     unsigned char modrm_byte = 0;
@@ -333,8 +387,19 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
+                    /* 
+                     * htonl_0
+                     * Okay this is really ugly, but its been over a week since
+                     * I wrote this part, and I don't feel like coming up with a
+                     * more elegant solution. I think what I've learned is that
+                     * I'm going to stick with ghidra/IDA :) This hack is a way
+                     * for ree to handle instructions that become illegal with
+                     * certain modrm bits set. We need to back track (since we
+                     * didn't have a mechanism for that yet). This could be made
+                     * much more elegant, but for now we are doing one offs.
+                     */
                     if (insn->opcode[0] == 0x0f && insn->opcode[1] == 0xae) {
-                        //clflush in 11 is illegal, print this as bytes
+                        // clflush in 11 is illegal, print this as bytes
                         // first need to create a new insn for the second op
                         // byte
                         ill_insn = insn_new();
@@ -453,12 +518,12 @@ fill:
                             he->opcode_name, decode_register(modrm.m), insn->immediate);
                     break;
                 case 1: // 01
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02xh], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %02xh], %08xh",
                             he->opcode_name, decode_register(modrm.m),
                             insn->displacement, insn->immediate);
                     break;
                 case 2: // 10
-                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08xh], %08x",
+                    snprintf(mnemonic, MAXMNEMONICSIZE, "%s [%s + %08xh], %08xh",
                             he->opcode_name, decode_register(modrm.m), insn->displacement,
                             insn->immediate);
                     break;
@@ -511,8 +576,9 @@ fill:
                             insn->displacement);
                     break;
                 case 3: // 11
+                    /* See htonl_0 */
                     if (insn->opcode[0] == 0x8d) {
-                        //lea in 11 is illegal, print this as bytes
+                        // lea in 11 is illegal, print this as bytes
                         // first need to create a new insn for the modrm byte
                         ill_insn = insn_new();
                         ill_insn->addr = insn->addr + 1; // addr is insn->addr + 1
@@ -698,6 +764,7 @@ fill:
     return 0;
 }
 
+/* Disassemble the buf read in from the input file */
 unsigned int disass_buf(unsigned char *buf, unsigned int first_addr, unsigned int filesize) {
     unsigned int cur = 0, i;
     unsigned int addr = first_addr;
@@ -741,6 +808,7 @@ unsigned int disass_buf(unsigned char *buf, unsigned int first_addr, unsigned in
     return cur;
 }
 
+/* Disassemble the given input file */
 void disass_file(char *filename) {
     FILE *fp;
     unsigned char *buffer;
@@ -786,6 +854,7 @@ void disass_file(char *filename) {
     fclose(fp);
 }
 
+/* Main function */
 int main(int argc, char **argv) {
     char *filename = NULL;
     int c, ret;
