@@ -1,15 +1,17 @@
 # ree
 
-Ree is the name of the program I put together for this assignment.
+ree is the name of the program I put together for this assignment.
 
 # Build instructions
 
-if you have gcc installed, cd into src/ and run $make. The binary named "ree" will be compiled in
+There is a precompiled version of the binary in the src/ directory.
+
+If you have gcc installed, cd into src/ and run "make". The binary named "ree" will be compiled in
 this directory.
 
 # How to use
 
-NOTE: instructions.txt must be in the same directory as the ./ree binary when
+NOTE: src/instructions.txt must be in the same directory as the ./ree binary when
 you are running it.
 
 Run the binary like any other C executable: ./ree
@@ -21,10 +23,7 @@ $./ree -i ../examples/example1.o
 
 # Description
 
-All source code here was written from scratch, with a little bit of help on the
-hash algorithm chosen from stack overflow.
-
-Basically, the disassembler works like this:
+Basically, the disassembler implments linear sweep like this:
 
 1) A hash table is built using the instructions.txt file
     - This file is the list of supported instructions

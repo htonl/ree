@@ -891,13 +891,13 @@ int main(int argc, char **argv) {
     // R10 printf("Disassembling filename: %s\n", filename);
     // build the hashtable of supported instructions
     ret = build_hashtable();
+    if (ret) {
+        fprintf(stderr, "Error building the hashtable, check instructions.txt\n");
+        abort();
+    }
     // initialize the instruction tree
     insn_tree = NULL;
     label_list = NULL;
     disass_file(filename);
     
-    if (ret) {
-        fprintf(stderr, "Error building the hashtable, check instructions.txt\n");
-        abort();
-    }
 }
